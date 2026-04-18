@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kana Farm 3D - Edisi Panen</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; touch-action: none; user-select: none; -webkit-user-select: none; }
+        #game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
+        .interactive { pointer-events: auto; }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            width: 20px; height: 20px;
+            transform: translate(-50%, -50%);
+            color: white; font-size: 24px; font-weight: bold; text-align: center; line-height: 20px;
+            text-shadow: 1px 1px 2px black; pointer-events: none; z-index: 5;
+        }
+
+        /* D-Pad Mobile */
+        #mobile-controls {
+            position: absolute; bottom: 20px; left: 20px; display: none; z-index: 15; pointer-events: auto;
+            grid-template-columns: 60px 60px 60px; grid-template-rows: 60px 60px 60px; gap: 8px;
+        }
+        .dpad-btn {
+            background: rgba(255, 255, 255, 0.3); border: 2px solid rgba(255, 255, 255, 0.7);
+            border-radius: 12px; display: flex; justify-content: center; align-items: center;
+            font-size: 28px; color: white; font-weight: bold; backdrop-filter: blur(4px);
+        }
+        .dpad-btn:active { background: rgba(255, 255, 255, 0.8); color: black; transform: scale(0.95); }
+        
+        #btn-up { grid-column: 2; grid-row: 1; }
+        #btn-left { grid-column: 1; grid-row: 2; }
+        #btn-down { grid-column: 2; grid-row: 2; }
+        #btn-right { grid-column: 3; grid-row: 2; }
+
+        .spinner { border: 4px solid rgba(255,255,255,0.3); border-radius: 50%; border-top: 4px solid #fff; width: 24px; height: 24px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Label NPC */
+        #npc-label {
+            position: absolute; padding: 4px 8px; background: rgba(0,0,0,0.6); color: white;
+            border-radius: 8px; font-weight: bold; font-size: 14px; pointer-events: none;
+            transform: translate(-50%, -50%); display: none; z-index: 5; border: 1px solid white; text-shadow: 1px 1px 2px black;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- BGM -->
+    <audio id="bgm-audio" src="https://raw.githubusercontent.com/lyn364-lll/kono/main/A.mp3" loop preload="auto"></audio>
+
+    <!-- Canvas -->
+    <div id="game-canvas"></div>
+
+    <div id="npc-label">👨‍🌾 Sensei</div>
+
+    <!-- HUD -->
+    <div class="ui-layer flex flex-col justify-between p-4" id="hud" style="display: none;">
+        <div class="flex justify-between items-start text-white drop-shadow-md w-full">
+            <div class="bg-black/60 p-3 md:p-4 rounded-lg border border-white/20 text-sm md:text-xl font-bold backdrop-blur-sm">
+                <p>Petani: <span id="hud-name" class="text-yellow-400">Player1</span></p>
+                <p>Panen: <span id="hud-score" class="text-green-400">0</span> / <span id="hud-total">15</span></p>
+            </div>
+            
+            <div class="flex gap-2 items-start interactive">
+                <div class="bg-black/60 p-3 md:p-4 rounded-lg border border-white/20 text-right text-sm md:text-xl font-bold backdrop-blur-sm">
+                    <p>Waktu: <span id="hud-time" class="text-blue-400">00:00</span></p>
+                    <p class="text-xs md:text-sm font-normal mt-1 text-gray-300 hidden md:block">Klik untuk interaksi. ESC untuk Pause.</p>
+                    <p class="text-xs md:text-sm font-normal mt-1 text-gray-300 block md:hidden">Geser layar kanan untuk melihat.</p>
+                </div>
+                <button id="btn-toggle-sound" class="bg-blue-600/80 hover:bg-blue-500 p-3 md:p-4 rounded-lg border border-white/50 text-white font-bold text-xl shadow-lg transition">🔊</button>
+                <button id="btn-pause-mobile" class="bg-gray-800/80 hover:bg-gray-700 p-3 md:p-4 rounded-lg border border-white/50 text-white font-bold text-xl shadow-lg transition">⏸</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile D-Pad -->
+    <div id="mobile-controls">
+        <div id="btn-up" class="dpad-btn">↑</div>
+        <div id="btn-left" class="dpad-btn">←</div>
+        <div id="btn-down" class="dpad-btn">↓</div>
+        <div id="btn-right" class="dpad-btn">→</div>
+    </div>
+
+    <!-- Pause Menu -->
+    <div id="pause-menu" class="ui-layer interactive flex items-center justify-center bg-black/80 backdrop-blur-sm" style="display: none;">
+        <div class="bg-white p-6 md:p-8 rounded-2xl shadow-2xl max-w-sm w-[90%] text-center border-4 border-gray-500">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6">Game Dijeda</h2>
+            <button id="btn-resume" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-xl text-lg shadow-lg mb-4 transition">▶ Lanjut Main</button>
+            <button id="btn-finish-early" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-xl text-lg shadow-lg transition">💾 Selesai & Simpan</button>
+        </div>
+    </div>
+
+    <div id="crosshair" style="display: none;">+</div>
+
+    <!-- Menu Utama -->
+    <div id="start-menu" class="ui-layer interactive flex items-center justify-center bg-black/70 backdrop-blur-md">
+        <div class="bg-white p-6 md:p-8 rounded-2xl shadow-2xl max-w-md w-[90%] text-center transform transition-all border-4 border-green-500 overflow-y-auto max-h-[95vh]">
+            <img src="https://docs.google.com/drawings/d/e/2PACX-1vQeIag8xEBUFx7aHjzWAW66sEx0Ay5X5UokWfOfd-1igTngiNuaGKOSfvm2mb8H2855pqkcIcWPnMW6/pub?w=960&h=720" alt="Kana Farm Graphic" class="w-full h-auto rounded-xl mb-4 border-2 border-green-200 shadow-sm pointer-events-none">
+            
+            <h1 class="text-3xl md:text-4xl font-extrabold text-green-600 mb-2">Kana Farm 3D</h1>
+            <p class="text-gray-600 mb-4 text-sm md:text-base">Panen hasil kebun dan belajar bahasa Jepang!</p>
+            
+            <div class="text-xs md:text-sm text-left bg-gray-50 p-3 rounded-lg mb-4 border border-gray-200 shadow-inner">
+                <strong>Panduan Panen:</strong><br>
+                ⚪ Lobak Putih = Mudah (Hiragana)<br>
+                🥕 Wortel Oranye = Sedang (Katakana)<br>
+                🍈 Melon Hijau = Sulit (Dakuten)<br>
+                👨‍🌾 <strong>Sensei (Karakter Bertopi)</strong> = Belajar Kosakata Baru!
+            </div>
+
+            <div class="mb-4">
+                <input type="text" id="player-name-input" placeholder="Masukkan Nama Petani..." class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 focus:border-green-500 focus:outline-none text-lg text-center" maxlength="15">
+            </div>
+
+            <button id="btn-start" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-xl text-xl shadow-lg transition transform hover:scale-105 mb-3">Mulai Bertani</button>
+            <button id="btn-show-leaderboard" class="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-2 px-4 rounded-xl shadow transition">🏆 Papan Peringkat</button>
+            
+            <div id="loading-auth" class="mt-4 text-sm font-semibold text-blue-600">
+                <div class="spinner mr-2"></div> Menghubungkan ke Server...
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Kuis -->
+    <div id="quiz-modal" class="ui-layer interactive flex items-center justify-center bg-black/70 backdrop-blur-sm" style="display: none;">
+        <div class="bg-white p-6 md:p-8 rounded-2xl shadow-2xl max-w-sm w-[90%] text-center border-4 border-blue-500">
+            <h2 class="text-2xl font-bold text-gray-800 mb-1" id="quiz-title">Tebak Huruf Ini!</h2>
+            <p class="text-sm text-gray-500 mb-4" id="quiz-subtitle">Ketik romaji-nya (contoh: a, ka)</p>
+            
+            <div class="text-6xl md:text-7xl font-bold text-black mb-6 bg-gray-100 py-6 rounded-xl border border-gray-200" id="quiz-char">あ</div>
+            <input type="text" id="quiz-input" autocomplete="off" placeholder="jawabanmu..." class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 focus:border-blue-500 focus:outline-none text-xl text-center mb-4 lowercase">
+            
+            <div class="flex gap-2">
+                <button id="btn-submit-quiz" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-2 rounded-xl shadow-lg transition">Jawab</button>
+                <button id="btn-cancel-quiz" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-2 rounded-xl transition">Batal</button>
+            </div>
+            <p id="quiz-feedback" class="mt-3 font-bold h-6"></p>
+        </div>
+    </div>
+
+    <!-- Modal Kosakata -->
+    <div id="vocab-modal" class="ui-layer interactive flex items-center justify-center bg-black/70 backdrop-blur-sm" style="display: none;">
+        <div class="bg-amber-50 p-6 md:p-8 rounded-2xl shadow-2xl max-w-sm w-[90%] text-center border-4 border-amber-500">
+            <h2 class="text-2xl font-bold text-amber-800 mb-1">Pelajaran dari Sensei</h2>
+            <p class="text-sm text-amber-600 mb-4">Ayo belajar kosakata baru!</p>
+            
+            <div class="bg-white py-6 px-4 rounded-xl border-2 border-amber-200 shadow-inner mb-6">
+                <div class="text-4xl md:text-5xl font-bold text-black mb-2" id="vocab-char">こんにちは</div>
+                <div class="text-xl font-semibold text-gray-500 mb-4" id="vocab-romaji">konnichiwa</div>
+                <div class="text-2xl font-bold text-blue-600" id="vocab-meaning">Halo</div>
+            </div>
+            
+            <div class="flex gap-2 flex-col md:flex-row">
+                <button id="btn-next-vocab" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 px-4 rounded-xl shadow-lg transition">Ajari Lagi</button>
+                <button id="btn-close-vocab" class="w-full bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-4 rounded-xl transition mt-2 md:mt-0">Terima Kasih</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Papan Peringkat -->
+    <div id="leaderboard-modal" class="ui-layer interactive flex items-center justify-center bg-black/80 backdrop-blur-md" style="display: none;">
+        <div class="bg-white p-6 md:p-8 rounded-2xl shadow-2xl max-w-lg w-[90%] max-h-[80vh] flex flex-col border-4 border-yellow-400">
+            <h2 class="text-2xl md:text-3xl font-extrabold text-center text-yellow-600 mb-4 flex justify-center items-center gap-2">🏆 Papan Peringkat</h2>
+            <div class="overflow-y-auto flex-1 mb-4 pr-2">
+                <table class="w-full text-left border-collapse text-sm md:text-base">
+                    <thead>
+                        <tr class="bg-yellow-100 text-yellow-800">
+                            <th class="p-2 md:p-3 rounded-tl-lg">Rank</th>
+                            <th class="p-2 md:p-3">Nama</th>
+                            <th class="p-2 md:p-3">Skor</th>
+                            <th class="p-2 md:p-3 rounded-tr-lg">Waktu</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaderboard-body">
+                        <tr><td colspan="4" class="text-center p-4 text-gray-500">Memuat data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <button id="btn-close-leaderboard" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-bold py-3 px-4 rounded-xl shadow transition">Tutup</button>
+        </div>
+    </div>
+
+    <!-- Skrip Firebase & 3D -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import * as THREE from 'three';
+        
+        // ==========================================
+        // 1. DATA KANA
+        // ==========================================
+        const kanaData = [
+            { char: 'あ', romaji: 'a', type: 'Hiragana', diff: 1 }, { char: 'い', romaji: 'i', type: 'Hiragana', diff: 1 }, { char: 'う', romaji: 'u', type: 'Hiragana', diff: 1 }, { char: 'え', romaji: 'e', type: 'Hiragana', diff: 1 }, { char: 'お', romaji: 'o', type: 'Hiragana', diff: 1 },
+            { char: 'か', romaji: 'ka', type: 'Hiragana', diff: 1 }, { char: 'き', romaji: 'ki', type: 'Hiragana', diff: 1 }, { char: 'く', romaji: 'ku', type: 'Hiragana', diff: 1 }, { char: 'け', romaji: 'ke', type: 'Hiragana', diff: 1 }, { char: 'こ', romaji: 'ko', type: 'Hiragana', diff: 1 },
+            { char: 'さ', romaji: 'sa', type: 'Hiragana', diff: 1 }, { char: 'し', romaji: 'shi', type: 'Hiragana', diff: 1 }, { char: 'す', romaji: 'su', type: 'Hiragana', diff: 1 }, { char: 'せ', romaji: 'se', type: 'Hiragana', diff: 1 }, { char: 'そ', romaji: 'so', type: 'Hiragana', diff: 1 },
+            
+            { char: 'ア', romaji: 'a', type: 'Katakana', diff: 2 }, { char: 'イ', romaji: 'i', type: 'Katakana', diff: 2 }, { char: 'ウ', romaji: 'u', type: 'Katakana', diff: 2 }, { char: 'エ', romaji: 'e', type: 'Katakana', diff: 2 }, { char: 'オ', romaji: 'o', type: 'Katakana', diff: 2 },
+            { char: 'カ', romaji: 'ka', type: 'Katakana', diff: 2 }, { char: 'キ', romaji: 'ki', type: 'Katakana', diff: 2 }, { char: 'ク', romaji: 'ku', type: 'Katakana', diff: 2 }, { char: 'ケ', romaji: 'ke', type: 'Katakana', diff: 2 }, { char: 'コ', romaji: 'ko', type: 'Katakana', diff: 2 },
+            
+            { char: 'が', romaji: 'ga', type: 'Hiragana', diff: 3 }, { char: 'ぎ', romaji: 'gi', type: 'Hiragana', diff: 3 }, { char: 'ぐ', romaji: 'gu', type: 'Hiragana', diff: 3 }, { char: 'げ', romaji: 'ge', type: 'Hiragana', diff: 3 }, { char: 'ご', romaji: 'go', type: 'Hiragana', diff: 3 },
+            { char: 'ば', romaji: 'ba', type: 'Hiragana', diff: 3 }, { char: 'ぱ', romaji: 'pa', type: 'Hiragana', diff: 3 }, { char: 'ビ', romaji: 'bi', type: 'Katakana', diff: 3 }
+        ];
+
+        const vocabData = [
+            { char: 'こんにちは', romaji: 'konnichiwa', meaning: 'Halo / Selamat Siang' },
+            { char: 'ありがとう', romaji: 'arigatou', meaning: 'Terima Kasih' },
+            { char: 'さようなら', romaji: 'sayounara', meaning: 'Selamat Tinggal' },
+            { char: 'せんせい', romaji: 'sensei', meaning: 'Guru / Pengajar' },
+            { char: 'がくせい', romaji: 'gakusei', meaning: 'Murid' },
+            { char: 'みず', romaji: 'mizu', meaning: 'Air' },
+            { char: 'ねこ', romaji: 'neko', meaning: 'Kucing' },
+            { char: 'いぬ', romaji: 'inu', meaning: 'Anjing' },
+            { char: 'はい', romaji: 'hai', meaning: 'Iya / Benar' },
+            { char: 'いいえ', romaji: 'iie', meaning: 'Tidak' },
+            { char: 'おいしい', romaji: 'oishii', meaning: 'Lezat' }
+        ];
+
+        // ==========================================
+        // 2. AUDIO & EFEK SUARA
+        // ==========================================
+        let audioCtx;
+        let isMuted = false;
+        const bgmAudio = document.getElementById('bgm-audio');
+        bgmAudio.volume = 0.3;
+
+        function initAudio() {
+            if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            if(!isMuted) bgmAudio.play().catch(e => console.log("Menunggu sentuhan..."));
+        }
+
+        document.getElementById('btn-toggle-sound').addEventListener('click', () => {
+            isMuted = !isMuted;
+            document.getElementById('btn-toggle-sound').innerText = isMuted ? '🔇' : '🔊';
+            if (isMuted) bgmAudio.pause(); else bgmAudio.play();
+        });
+
+        function playCropSound() {
+            if(!audioCtx || isMuted) return;
+            const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'sine'; osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function playNPCSound() {
+            if(!audioCtx || isMuted) return;
+            const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.2);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+        }
+
+        // ==========================================
+        // 3. FIREBASE SETUP
+        // ==========================================
+        let db, auth, currentUser;
+        const appId = (typeof __app_id !== 'undefined' && __app_id) ? __app_id : 'kana-farm-hd';
+        const LEADERBOARD_COLLECTION = 'leaderboard';
+
+        async function initFirebase() {
+            try {
+                let config = { apiKey: "dummy", authDomain: "dummy", projectId: "dummy" };
+                if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                    config = JSON.parse(__firebase_config);
+                }
+                const app = initializeApp(config);
+                auth = getAuth(app); db = getFirestore(app);
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+                else await signInAnonymously(auth);
+                onAuthStateChanged(auth, (user) => { currentUser = user; document.getElementById('loading-auth').style.display = 'none'; });
+            } catch (error) { 
+                console.error("Firebase Error:", error);
+                document.getElementById('loading-auth').innerText = "Mode Offline."; 
+            }
+        }
+
+        async function saveScoreToFirebase(name, score, timeInSeconds) {
+            if (!currentUser || !db) return;
+            try { 
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', LEADERBOARD_COLLECTION), { 
+                    userId: currentUser.uid, 
+                    name: name || "Petani Anonim", 
+                    score: score, 
+                    time: timeInSeconds, 
+                    timestamp: serverTimestamp() 
+                });
+            } catch (e) { 
+                console.error("Error save score:", e); 
+            }
+        }
+
+        async function loadLeaderboard() {
+            const tbody = document.getElementById('leaderboard-body');
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4">Memuat...</td></tr>';
+            if (!currentUser || !db) return tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-red-500">Offline.</td></tr>';
+            try {
+                const snapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', LEADERBOARD_COLLECTION));
+                let scores = []; snapshot.forEach((doc) => scores.push({ id: doc.id, ...doc.data() }));
+                scores.sort((a, b) => b.score !== a.score ? b.score - a.score : a.time - b.time);
+                scores = scores.slice(0, 10);
+                tbody.innerHTML = scores.length === 0 ? '<tr><td colspan="4" class="text-center p-4">Jadilah yang pertama!</td></tr>' : '';
+                scores.forEach((s, i) => {
+                    const mins = Math.floor(s.time / 60).toString().padStart(2, '0'), secs = (s.time % 60).toString().padStart(2, '0');
+                    tbody.innerHTML += `<tr class="${i%2===0?'bg-white':'bg-gray-50'} border-b border-gray-100"><td class="p-2 md:p-3">${i + 1}</td><td class="p-2 md:p-3">${s.name}</td><td class="p-2 md:p-3 text-green-600">${s.score}</td><td class="p-2 md:p-3 text-blue-600">${mins}:${secs}</td></tr>`;
+                });
+            } catch (e) { tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-red-500">Gagal memuat.</td></tr>'; }
+        }
+
+        // ==========================================
+        // 4. THREE.JS & MODEL PROCEDURAL HD
+        // ==========================================
+        const isMobile = () => ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        let camera, scene, renderer, raycaster, npcMesh; 
+        let isPlaying = false, isQuizActive = false, isPaused = false;
+        let playerName = "", score = 0, totalCrops = 15, startTime = 0, timerInterval;
+        let currentTargetCrop = null, currentKanaData = null;
+        const cropObjectsList = []; 
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let prevTime = performance.now();
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        let eulerX = 0, eulerY = 0, touchLookActive = false, lastTouchX = 0, lastTouchY = 0;
+
+        // --- MATERIALS ---
+        const matSkin = new THREE.MeshPhongMaterial({ color: 0xffccaa });
+        const matBlue = new THREE.MeshPhongMaterial({ color: 0x1e3a8a });
+        const matPants = new THREE.MeshPhongMaterial({ color: 0x222222 });
+        const matStraw = new THREE.MeshPhongMaterial({ color: 0xd2b48c });
+        
+        const matTurnip = new THREE.MeshPhongMaterial({ color: 0xffffff });
+        const matCarrot = new THREE.MeshPhongMaterial({ color: 0xff8c00 });
+        const matMelon = new THREE.MeshPhongMaterial({ color: 0x32cd32 });
+        const matLeaf = new THREE.MeshPhongMaterial({ color: 0x228b22 });
+        const matStem = new THREE.MeshPhongMaterial({ color: 0x5c4033 });
+        const matSoil = new THREE.MeshPhongMaterial({ color: 0x4e3524 });
+
+        function initThreeJS() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); 
+            scene.fog = new THREE.Fog(0x87CEEB, 0, 750);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
+            camera.position.set(0, 10, 30);
+            scene.add(camera);
+
+            const light = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
+            light.position.set(0.5, 1, 0.75); scene.add(light);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(20, 50, 20); dirLight.castShadow = true; scene.add(dirLight);
+
+            raycaster = new THREE.Raycaster();
+
+            // Rumput
+            const floorGeo = new THREE.PlaneGeometry(2000, 2000, 10, 10);
+            floorGeo.rotateX(-Math.PI / 2);
+            const colorsFloor = [];
+            for (let i = 0, l = floorGeo.attributes.position.count; i < l; i++) {
+                const color = new THREE.Color().setHSL(0.3, 0.5 + Math.random() * 0.2, 0.3 + Math.random() * 0.1);
+                colorsFloor.push(color.r, color.g, color.b);
+            }
+            floorGeo.setAttribute('color', new THREE.Float32BufferAttribute(colorsFloor, 3));
+            scene.add(new THREE.Mesh(floorGeo, new THREE.MeshBasicMaterial({ vertexColors: true })));
+
+            createFence();
+            createNPC();
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('game-canvas').appendChild(renderer.domElement);
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+            initCustomControls();
+        }
+
+        function createFence() {
+            const fenceMat = new THREE.MeshPhongMaterial({ color: 0x8B4513 }); 
+            const f1 = new THREE.Mesh(new THREE.BoxGeometry(100, 10, 2), fenceMat); f1.position.set(0, 5, -50); scene.add(f1);
+            const f2 = new THREE.Mesh(new THREE.BoxGeometry(100, 10, 2), fenceMat); f2.position.set(0, 5, 50); scene.add(f2);
+            const f3 = new THREE.Mesh(new THREE.BoxGeometry(100, 10, 2), fenceMat); f3.rotation.y = Math.PI / 2; f3.position.set(-50, 5, 0); scene.add(f3);
+            const f4 = new THREE.Mesh(new THREE.BoxGeometry(100, 10, 2), fenceMat); f4.rotation.y = Math.PI / 2; f4.position.set(50, 5, 0); scene.add(f4);
+        }
+
+        function createNPC() {
+            npcMesh = new THREE.Group();
+            
+            // Badan
+            const body = new THREE.Mesh(new THREE.BoxGeometry(3, 4, 2), matBlue);
+            body.position.y = 4;
+            
+            // Kepala
+            const head = new THREE.Mesh(new THREE.BoxGeometry(2.5, 2.5, 2.5), matSkin);
+            head.position.y = 7.5;
+            
+            // Kaki
+            const legGeo = new THREE.CylinderGeometry(0.6, 0.6, 2);
+            const legL = new THREE.Mesh(legGeo, matPants); legL.position.set(-0.8, 1, 0);
+            const legR = new THREE.Mesh(legGeo, matPants); legR.position.set(0.8, 1, 0);
+            
+            // Topi
+            const brim = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 0.3, 16), matStraw);
+            brim.position.y = 8.8;
+            const topHat = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 1, 16), matStraw);
+            topHat.position.y = 9.3;
+
+            npcMesh.add(body, head, legL, legR, brim, topHat);
+            npcMesh.position.set(0, 0, -20); 
+            npcMesh.userData.isNPC = true;
+            scene.add(npcMesh);
+        }
+
+        function buildTurnip() {
+            const group = new THREE.Group();
+            const base = new THREE.Mesh(new THREE.SphereGeometry(1.5, 16, 16), matTurnip);
+            base.position.y = 1.5;
+            const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.8, 2.5, 4), matLeaf);
+            leaf.position.y = 3.5;
+            group.add(base, leaf);
+            return group;
+        }
+
+        function buildCarrot() {
+            const group = new THREE.Group();
+            const base = new THREE.Mesh(new THREE.ConeGeometry(1, 3, 16), matCarrot);
+            base.rotation.x = Math.PI; 
+            base.position.y = 1.5;
+            const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.8, 2, 4), matLeaf);
+            leaf.position.y = 3.5;
+            group.add(base, leaf);
+            return group;
+        }
+
+        function buildMelon() {
+            const group = new THREE.Group();
+            const base = new THREE.Mesh(new THREE.DodecahedronGeometry(1.8), matMelon);
+            base.position.y = 1.5;
+            const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.8), matStem);
+            stem.position.y = 3; stem.rotation.z = 0.2;
+            group.add(base, stem);
+            return group;
+        }
+
+        function generateFarm() {
+            cropObjectsList.forEach(obj => scene.remove(obj));
+            cropObjectsList.length = 0;
+
+            for (let i = 0; i < totalCrops; i++) {
+                const soil = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4), matSoil);
+                
+                let px, pz;
+                do {
+                    px = Math.floor(Math.random() * 20 - 10) * 4;
+                    pz = Math.floor(Math.random() * 20 - 10) * 4;
+                } while(Math.abs(px) < 10 && Math.abs(pz + 20) < 10); 
+
+                soil.position.set(px, 2, pz);
+
+                const randomKana = kanaData[Math.floor(Math.random() * kanaData.length)];
+                soil.userData = { isCrop: true, kana: randomKana };
+
+                let plantModel;
+                if (randomKana.diff === 1) plantModel = buildTurnip();
+                else if (randomKana.diff === 2) plantModel = buildCarrot();
+                else plantModel = buildMelon();
+
+                soil.add(plantModel); 
+                scene.add(soil); 
+                cropObjectsList.push(soil);
+            }
+        }
+
+        // ==========================================
+        // 5. KONTROL GERAKAN (PC & MOBILE)
+        // ==========================================
+        function initCustomControls() {
+            document.addEventListener('keydown', (e) => {
+                if (isQuizActive || isPaused) return;
+                if(e.code==='ArrowUp'||e.code==='KeyW') moveForward=true;
+                if(e.code==='ArrowLeft'||e.code==='KeyA') moveLeft=true;
+                if(e.code==='ArrowDown'||e.code==='KeyS') moveBackward=true;
+                if(e.code==='ArrowRight'||e.code==='KeyD') moveRight=true;
+            });
+            document.addEventListener('keyup', (e) => {
+                if(e.code==='ArrowUp'||e.code==='KeyW') moveForward=false;
+                if(e.code==='ArrowLeft'||e.code==='KeyA') moveLeft=false;
+                if(e.code==='ArrowDown'||e.code==='KeyS') moveBackward=false;
+                if(e.code==='ArrowRight'||e.code==='KeyD') moveRight=false;
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isPlaying || isQuizActive || isPaused || document.pointerLockElement !== document.body) return;
+                eulerY -= (e.movementX || 0) * 0.002;
+                eulerX -= (e.movementY || 0) * 0.002;
+                eulerX = Math.max(-Math.PI/2, Math.min(Math.PI/2, eulerX));
+                camera.quaternion.setFromEuler(new THREE.Euler(eulerX, eulerY, 0, 'YXZ'));
+            });
+
+            document.addEventListener('mousedown', (e) => {
+                if (!isPlaying || isQuizActive || isPaused || isMobile()) return;
+                if (document.pointerLockElement !== document.body) document.body.requestPointerLock();
+                else {
+                    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+                    checkInteraction();
+                }
+            });
+
+            document.addEventListener('pointerlockchange', () => {
+                if (document.pointerLockElement !== document.body && isPlaying && !isQuizActive && !isMobile()) showPauseMenu();
+            });
+
+            const canvasObj = document.getElementById('game-canvas');
+            canvasObj.addEventListener('touchstart', (e) => {
+                if (!isPlaying || isQuizActive || isPaused) return;
+                const touch = e.touches[0];
+                lastTouchX = touch.pageX; lastTouchY = touch.pageY; touchLookActive = true;
+                const ptr = new THREE.Vector2((touch.clientX/window.innerWidth)*2-1, -(touch.clientY/window.innerHeight)*2+1);
+                raycaster.setFromCamera(ptr, camera);
+                checkInteraction();
+            }, { passive: false });
+
+            canvasObj.addEventListener('touchmove', (e) => {
+                if (!touchLookActive || !isPlaying || isQuizActive || isPaused) return;
+                e.preventDefault();
+                const touch = e.touches[0];
+                eulerY -= (touch.pageX - lastTouchX) * 0.005; eulerX -= (touch.pageY - lastTouchY) * 0.005;
+                eulerX = Math.max(-Math.PI/2, Math.min(Math.PI/2, eulerX));
+                camera.quaternion.setFromEuler(new THREE.Euler(eulerX, eulerY, 0, 'YXZ'));
+                lastTouchX = touch.pageX; lastTouchY = touch.pageY;
+            }, { passive: false });
+
+            canvasObj.addEventListener('touchend', () => touchLookActive = false);
+
+            const bindBtn = (id, setFlag) => {
+                const b = document.getElementById(id);
+                b.addEventListener('touchstart', (e)=>{e.preventDefault();e.stopPropagation();setFlag(true);}, {passive:false});
+                b.addEventListener('touchend', (e)=>{e.preventDefault();e.stopPropagation();setFlag(false);}, {passive:false});
+            };
+            bindBtn('btn-up', v=>moveForward=v); bindBtn('btn-down', v=>moveBackward=v);
+            bindBtn('btn-left', v=>moveLeft=v); bindBtn('btn-right', v=>moveRight=v);
+        }
+
+        function showPauseMenu() {
+            isPaused = true; document.getElementById('pause-menu').style.display = 'flex';
+            document.getElementById('crosshair').style.display = 'none'; document.getElementById('mobile-controls').style.display = 'none';
+            if(!isMobile() && document.exitPointerLock) document.exitPointerLock();
+            moveForward=moveBackward=moveLeft=moveRight=false;
+        }
+
+        document.getElementById('btn-pause-mobile').addEventListener('click', showPauseMenu);
+        document.getElementById('btn-resume').addEventListener('click', () => {
+            isPaused = false; document.getElementById('pause-menu').style.display = 'none';
+            if(isMobile()) document.getElementById('mobile-controls').style.display = 'grid';
+            else { document.getElementById('crosshair').style.display = 'block'; document.body.requestPointerLock(); }
+        });
+
+        function checkInteraction() {
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            for (let i = 0; i < intersects.length; i++) {
+                if (intersects[i].distance > 30) break;
+                let target = intersects[i].object;
+                while (target) {
+                    if (target.userData && target.userData.isCrop) { playCropSound(); triggerQuiz(target); return; }
+                    if (target.userData && target.userData.isNPC) { playNPCSound(); triggerVocab(); return; }
+                    target = target.parent;
+                }
+            }
+        }
+
+        // ==========================================
+        // 6. LOGIKA KUIS & GAME
+        // ==========================================
+        function triggerQuiz(cropObject) {
+            isQuizActive = true; currentTargetCrop = cropObject;
+            if(!isMobile() && document.exitPointerLock) document.exitPointerLock();
+            document.getElementById('mobile-controls').style.display = 'none';
+            currentKanaData = cropObject.userData.kana;
+            document.getElementById('quiz-char').innerText = currentKanaData.char;
+            document.getElementById('quiz-input').value = ""; document.getElementById('quiz-feedback').innerText = "";
+            document.getElementById('quiz-modal').style.display = "flex";
+            if(!isMobile()) setTimeout(() => document.getElementById('quiz-input').focus(), 100);
+        }
+
+        document.getElementById('btn-submit-quiz').addEventListener('click', () => {
+            if (document.getElementById('quiz-input').value.trim().toLowerCase() === currentKanaData.romaji) {
+                document.getElementById('quiz-feedback').innerHTML = "<span class='text-green-500'>Benar! +1</span>";
+                score++; document.getElementById('hud-score').innerText = score;
+                scene.remove(currentTargetCrop); cropObjectsList.splice(cropObjectsList.indexOf(currentTargetCrop), 1);
+                setTimeout(() => { closeModals(); if(cropObjectsList.length === 0) endGame(); }, 800);
+            } else {
+                document.getElementById('quiz-feedback').innerHTML = `<span class='text-red-500'>Salah! Itu: ${currentKanaData.romaji}</span>`;
+                setTimeout(closeModals, 1500);
+            }
+        });
+        document.getElementById('btn-cancel-quiz').addEventListener('click', closeModals);
+        document.getElementById('quiz-input').addEventListener('keypress', (e) => { if (e.key === 'Enter') document.getElementById('btn-submit-quiz').click(); });
+
+        function triggerVocab() {
+            isQuizActive = true; if(!isMobile() && document.exitPointerLock) document.exitPointerLock();
+            document.getElementById('mobile-controls').style.display = 'none';
+            showRandomVocab(); document.getElementById('vocab-modal').style.display = "flex";
+        }
+        function showRandomVocab() {
+            const w = vocabData[Math.floor(Math.random() * vocabData.length)];
+            document.getElementById('vocab-char').innerText = w.char; document.getElementById('vocab-romaji').innerText = w.romaji; document.getElementById('vocab-meaning').innerText = w.meaning;
+        }
+        document.getElementById('btn-next-vocab').addEventListener('click', showRandomVocab);
+        document.getElementById('btn-close-vocab').addEventListener('click', closeModals);
+
+        function closeModals() {
+            document.getElementById('quiz-modal').style.display = "none"; document.getElementById('vocab-modal').style.display = "none";
+            isQuizActive = false; currentTargetCrop = null;
+            if(isPlaying && !isPaused) { if(isMobile()) document.getElementById('mobile-controls').style.display = 'grid'; else document.body.requestPointerLock(); }
+        }
+
+        function startGame() {
+            initAudio(); 
+            playerName = document.getElementById('player-name-input').value.trim() || "Petani";
+            document.getElementById('hud-name').innerText = playerName;
+            document.getElementById('start-menu').style.display = "none"; document.getElementById('hud').style.display = "flex";
+            if(isMobile()) document.getElementById('mobile-controls').style.display = 'grid'; else document.getElementById('crosshair').style.display = 'block';
+
+            score = 0; document.getElementById('hud-score').innerText = score;
+            generateFarm();
+            camera.position.set(0, 10, 30); eulerX=0; eulerY=0; camera.quaternion.identity();
+            isPlaying = true; isQuizActive = false; isPaused = false; startTime = Date.now();
+            if(timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if(!isPlaying || isPaused) return;
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                document.getElementById('hud-time').innerText = `${Math.floor(elapsed/60).toString().padStart(2,'0')}:${(elapsed%60).toString().padStart(2,'0')}`;
+            }, 1000);
+            if(!isMobile() && document.body.requestPointerLock) document.body.requestPointerLock(); 
+        }
+        document.getElementById('btn-start').addEventListener('click', startGame);
+
+        async function endGame() {
+            isPlaying = false; clearInterval(timerInterval);
+            if(!isMobile() && document.exitPointerLock) document.exitPointerLock();
+            document.getElementById('hud').style.display = "none"; document.getElementById('crosshair').style.display = "none"; document.getElementById('mobile-controls').style.display = "none";
+            document.getElementById('pause-menu').style.display = "none"; document.getElementById('npc-label').style.display = 'none';
+            const secs = Math.floor((Date.now() - startTime) / 1000);
+            document.getElementById('loading-auth').style.display = "block"; document.getElementById('start-menu').style.display = "flex";
+            await saveScoreToFirebase(playerName, score, secs);
+            document.getElementById('loading-auth').style.display = "none";
+            alert(`Kerja Bagus! Memanen ${score} tanaman dalam ${secs} detik.`);
+        }
+        document.getElementById('btn-finish-early').addEventListener('click', endGame);
+        document.getElementById('btn-show-leaderboard').addEventListener('click', async () => { document.getElementById('start-menu').style.display="none"; document.getElementById('leaderboard-modal').style.display="flex"; await loadLeaderboard(); });
+        document.getElementById('btn-close-leaderboard').addEventListener('click', () => { document.getElementById('leaderboard-modal').style.display="none"; document.getElementById('start-menu').style.display="flex"; });
+
+        const startAudioInt = () => { initAudio(); document.removeEventListener('click', startAudioInt); document.removeEventListener('touchstart', startAudioInt); };
+        document.addEventListener('click', startAudioInt); document.addEventListener('touchstart', startAudioInt);
+
+        // ==========================================
+        // 7. LOOP ANIMASI UTAMA
+        // ==========================================
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now();
+            if (isPlaying && !isQuizActive && !isPaused) {
+                let delta = (time - prevTime) / 1000; if (delta > 0.1) delta = 0.1; 
+                velocity.x -= velocity.x * 10.0 * delta; velocity.z -= velocity.z * 10.0 * delta;
+                direction.z = Number(moveForward) - Number(moveBackward); direction.x = Number(moveRight) - Number(moveLeft); direction.normalize(); 
+                const speed = 400.0;
+                if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
+
+                const dirVec = new THREE.Vector3(-velocity.x * delta, 0, -velocity.z * delta);
+                dirVec.applyAxisAngle(new THREE.Vector3(0, 1, 0), eulerY);
+                camera.position.add(dirVec); camera.position.y = 10;
+                if (camera.position.x < -45) camera.position.x = -45; if (camera.position.x > 45) camera.position.x = 45;
+                if (camera.position.z < -45) camera.position.z = -45; if (camera.position.z > 45) camera.position.z = 45;
+
+                if(npcMesh) {
+                    const vec = new THREE.Vector3(); npcMesh.getWorldPosition(vec); vec.y += 11; vec.project(camera);
+                    const lbl = document.getElementById('npc-label');
+                    if(vec.z > 1) lbl.style.display = 'none';
+                    else { lbl.style.display = 'block'; lbl.style.left = `${(vec.x*.5+.5)*window.innerWidth}px`; lbl.style.top = `${(vec.y*-.5+.5)*window.innerHeight}px`; }
+                }
+            }
+            prevTime = time; renderer.render(scene, camera);
+        }
+        window.onload = () => { initFirebase(); initThreeJS(); animate(); };
+    </script>
+</body>
+</html>
